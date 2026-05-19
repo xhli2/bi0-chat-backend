@@ -1,0 +1,91 @@
+services:
+  redis:
+    image: redis:7
+    ports:
+      - "6379:6379"
+
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: backend_temp
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d backend_temp"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_URL: postgresql+asyncpg://postgres:postgres@postgres:5432/backend_temp
+      JWT_SECRET_KEY: dev-insecure-secret-change-me
+      ENVIRONMENT: dev
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/0
+      CELERY_TASK_MAX_RETRIES: 3
+      CELERY_RETRY_BACKOFF_SECONDS: 5
+      CELERY_RETRY_BACKOFF_MAX_SECONDS: 60
+      MODEL_ALLOWLIST: builtin,gpt-4.1-mini,gpt-4.1
+      TENANT_MODEL_POLICIES_JSON: '{"public":["builtin","gpt-4.1-mini"],"vip":["builtin","gpt-4.1-mini","gpt-4.1"]}'
+      TOOL_CALL_TIMEOUT_SECONDS_DEFAULT: 15
+      TOOL_CALL_TIMEOUT_SECONDS_MAX: 60
+      TENANT_TOOL_POLICIES_JSON: '{"public":["time_now","session_lookup","summarize_chunk"],"vip":["*"]}'
+      AGENT_TOOL_BINDINGS_JSON: '{"report":{"skills":["echo"],"tools":["session_lookup","summarize_chunk"]},"research":{"skills":["echo","uppercase"],"tools":["session_lookup","http_search_wrapper"]}}'
+      CONTEXT_BUDGET_TOKENS: 4000
+      CONTEXT_RECENT_MESSAGE_LIMIT: 24
+      SUMMARY_TRIGGER_TURNS: 8
+      SUMMARY_TRIGGER_TOKEN_THRESHOLD: 2000
+      MAX_MESSAGES_PER_SESSION: 2000
+      MAX_SUMMARY_VERSIONS: 5
+      MAX_KV_PER_SESSION: 200
+      KV_TTL_HOURS: 72
+    depends_on:
+      redis:
+        condition: service_started
+      postgres:
+        condition: service_healthy
+
+  worker:
+    build: .
+    command: celery -A app.worker.celery_app.celery_app worker -Q high,default,low --loglevel=info
+    environment:
+      DATABASE_URL: postgresql+asyncpg://postgres:postgres@postgres:5432/backend_temp
+      JWT_SECRET_KEY: dev-insecure-secret-change-me
+      ENVIRONMENT: dev
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/0
+      CELERY_TASK_MAX_RETRIES: 3
+      CELERY_RETRY_BACKOFF_SECONDS: 5
+      CELERY_RETRY_BACKOFF_MAX_SECONDS: 60
+      MODEL_ALLOWLIST: builtin,gpt-4.1-mini,gpt-4.1
+      TENANT_MODEL_POLICIES_JSON: '{"public":["builtin","gpt-4.1-mini"],"vip":["builtin","gpt-4.1-mini","gpt-4.1"]}'
+      TOOL_CALL_TIMEOUT_SECONDS_DEFAULT: 15
+      TOOL_CALL_TIMEOUT_SECONDS_MAX: 60
+      TENANT_TOOL_POLICIES_JSON: '{"public":["time_now","session_lookup","summarize_chunk"],"vip":["*"]}'
+      AGENT_TOOL_BINDINGS_JSON: '{"report":{"skills":["echo"],"tools":["session_lookup","summarize_chunk"]},"research":{"skills":["echo","uppercase"],"tools":["session_lookup","http_search_wrapper"]}}'
+      CONTEXT_BUDGET_TOKENS: 4000
+      CONTEXT_RECENT_MESSAGE_LIMIT: 24
+      SUMMARY_TRIGGER_TURNS: 8
+      SUMMARY_TRIGGER_TOKEN_THRESHOLD: 2000
+      MAX_MESSAGES_PER_SESSION: 2000
+      MAX_SUMMARY_VERSIONS: 5
+      MAX_KV_PER_SESSION: 200
+      KV_TTL_HOURS: 72
+    depends_on:
+      redis:
+        condition: service_started
+      postgres:
+        condition: service_healthy
+
+volumes:
+  pg_data:
