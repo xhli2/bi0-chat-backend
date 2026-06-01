@@ -12,3 +12,5 @@ wheels/
 # Local runtime artifacts
 .env
 test.db
+workspaces/
+reports/
