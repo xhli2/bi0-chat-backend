@@ -25,6 +25,12 @@ async def tool_mcp_proxy_call(args: dict[str, Any], _: dict[str, Any]) -> dict[s
     settings = get_settings()
     payload = MCPProxyCallInput.model_validate(args)
     allowed_servers = settings.parsed_mcp_allowed_servers
+    if not allowed_servers:
+        raise ToolExecutionError(
+            "MCP_POLICY_EMPTY",
+            "MCP allowlist is empty; outbound MCP calls are disabled.",
+            retryable=False,
+        )
     if "*" not in allowed_servers and payload.server not in allowed_servers:
         raise ToolExecutionError(
             "MCP_SERVER_NOT_ALLOWED",

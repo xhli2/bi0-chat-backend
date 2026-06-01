@@ -1,3 +1,7 @@
+-- DEPRECATED: legacy SQL migration kept for historical reference only.
+-- DO NOT execute this file in active environments.
+-- Active migration system: Alembic Python revisions under /alembic/versions.
+
 -- chat history management V1
 
 CREATE TABLE IF NOT EXISTS chat_sessions (

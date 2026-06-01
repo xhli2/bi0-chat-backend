@@ -6,7 +6,11 @@ from app.core.config import get_settings
 from app.models.chat_memory_kv import ChatMemoryKV
 from app.models.chat_message import ChatMessage
 from app.models.chat_summary import ChatSummary
+from app.models.chat_tool_call import ChatToolCall
+from app.models.session_entity import SessionEntity
 from app.schemas.session import AgentContextSnapshot, ContextPolicy
+from app.services.context_pack_loader import load_context_pack_text
+from app.agent.skill_resolver import build_skill_instructions, resolve_skills
 from app.services.session_history import estimate_tokens
 
 
@@ -19,6 +23,9 @@ class PromptBuildInput:
     summary: ChatSummary | None
     memory_items: list[ChatMemoryKV]
     recent_messages: list[ChatMessage]
+    active_entities: list[SessionEntity] | None = None
+    recent_tool_calls: list[ChatToolCall] | None = None
+    agent_type: str = "echo"
 
 
 class PromptBuilder:
@@ -32,9 +39,22 @@ class PromptBuilder:
         bucket_summary = int(total * self.settings.context_ratio_summary)
         bucket_recent = int(total * self.settings.context_ratio_recent_messages)
 
-        system_base = "You are a backend report generation assistant. Be concise and factual."
+        system_base = "You are a bioinformatics analysis assistant. Be concise, cite evidence, and state uncertainty."
         tenant_policy = f"Tenant policy id: {payload.tenant_id}. Respect tenant-level model and output policies."
-        instructions = f"{system_base}\n{tenant_policy}"
+        resolved_skills = resolve_skills(prompt=payload.user_prompt, agent_type=payload.agent_type)
+        context_pack_text, context_pack_ids = load_context_pack_text(
+            prompt=payload.user_prompt,
+            agent_type=payload.agent_type,
+            tenant_id=payload.tenant_id,
+            skill_names=[skill.name for skill in resolved_skills],
+        )
+        skill_text = build_skill_instructions(resolved_skills)
+        instructions_parts = [system_base, tenant_policy]
+        if context_pack_text:
+            instructions_parts.append(context_pack_text)
+        if skill_text:
+            instructions_parts.append(skill_text)
+        instructions = "\n\n".join(instructions_parts)
         system_tokens = estimate_tokens(instructions)
         if system_tokens > bucket_system:
             instructions = instructions[: bucket_system * 4]
@@ -85,6 +105,22 @@ class PromptBuilder:
             recent_tokens = estimate_tokens("\n".join(message_lines))
 
         context_blocks = []
+        if payload.active_entities:
+            entity_lines = []
+            for item in payload.active_entities[:8]:
+                label = item.display_name or item.canonical_id
+                ref = f" ref={item.raw_ref}" if item.raw_ref else ""
+                summary = f" {item.summary[:120]}" if item.summary else ""
+                entity_lines.append(f"- {item.entity_type}: {label}{ref}{summary}")
+            if entity_lines:
+                context_blocks.append("[ActiveAnalysis]\n" + "\n".join(entity_lines))
+        if payload.recent_tool_calls:
+            tool_lines = []
+            for item in payload.recent_tool_calls[-10:]:
+                ref = f" ref={item.output_ref}" if item.output_ref else ""
+                tool_lines.append(f"- turn={item.turn_index} {item.tool_name} [{item.status}]{ref}")
+            if tool_lines:
+                context_blocks.append("[RecentToolCalls]\n" + "\n".join(tool_lines))
         if summary_text:
             context_blocks.append(f"[SessionSummary]\n{summary_text}")
         if kv_blocks:
@@ -114,4 +150,6 @@ class PromptBuilder:
             instructions=instructions,
             context_blocks=context_blocks,
             input_message=payload.user_prompt,
+            context_pack_ids=context_pack_ids,
+            skill_names=[skill.name for skill in resolved_skills],
         )

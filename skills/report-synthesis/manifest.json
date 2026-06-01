@@ -1,0 +1,4 @@
+{
+  "scripts": ["build_report.py"],
+  "default_script": "build_report.py"
+}

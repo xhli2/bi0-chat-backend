@@ -15,6 +15,7 @@ FastAPI backend scaffold with staged capabilities:
 2. Start Redis (local or docker)
 3. Start API: `uv run uvicorn app.main:app --reload`
 4. Start worker: `uv run celery -A app.worker.celery_app.celery_app worker -Q high,default,low --loglevel=info`
+5. Apply DB migrations: `uv run alembic upgrade head`
 
 ## Run with containers
 
@@ -89,6 +90,20 @@ SSE reconnect uses `Last-Event-ID` on `GET /api/v1/tasks/{task_id}/stream`.
   - recent messages
   - current user message
 - Hybrid budget policy and retention are configurable via `.env`.
+
+## Database migrations (Python, PostgreSQL)
+
+- Migration framework: **Alembic** (`alembic/` + `alembic.ini`)
+- Apply all migrations:
+  - `uv run alembic upgrade head`
+- Roll back one revision:
+  - `uv run alembic downgrade -1`
+- Create a new Python migration file:
+  - `uv run alembic revision -m "your_migration_name"`
+
+Note:
+- App startup no longer auto-creates schema in non-test environments.
+- Legacy SQL scripts under `app/db/migrations/` are deprecated and retained only as historical references.
 
 ## Tests
 

@@ -78,7 +78,8 @@ async def handoff_task(
         handoff_reason=payload.handoff_reason,
         sla_seconds=payload.sla_seconds,
     )
-    assert updated is not None
+    if updated is None:
+        raise ApiError(status_code=404, code="TASK_NOT_FOUND", detail="Task not found after handoff.")
     await task_manager.emit(
         AgentEvent(
             id="placeholder",
@@ -114,7 +115,8 @@ async def approve_tool(
         )
     )
     state = await task_manager.get_state(task_id)
-    assert state is not None
+    if state is None:
+        raise ApiError(status_code=404, code="TASK_NOT_FOUND", detail="Task not found after approval.")
     return state
 
 

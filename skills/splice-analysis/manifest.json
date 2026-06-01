@@ -1,0 +1,4 @@
+{
+  "scripts": ["check_hgvs.py"],
+  "default_script": "check_hgvs.py"
+}

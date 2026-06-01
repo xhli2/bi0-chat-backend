@@ -26,6 +26,7 @@ celery_app.conf.update(
         "agent.run": {"queue": "default", "routing_key": "default"},
         "task.demo": {"queue": "default", "routing_key": "default"},
         "session.refresh_memory": {"queue": "default", "routing_key": "default"},
+        "spliceai.run": {"queue": "default", "routing_key": "default"},
         "approval.scan_overdue": {"queue": "default", "routing_key": "default"},
     },
     task_queues=(

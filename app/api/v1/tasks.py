@@ -43,7 +43,8 @@ async def create_background_task(
             routing_key=payload.priority,
         )
     state = await task_manager.get_state(task_id)
-    assert state is not None
+    if state is None:
+        raise ApiError(status_code=404, code="TASK_NOT_FOUND", detail="Task not found after create.")
     return state
 
 
@@ -71,7 +72,8 @@ async def cancel_task(task_id: str, auth: AuthContext = Depends(get_auth_context
         AgentEvent(id="cancelled", type="status", task_id=task_id, payload={"status": "cancelled", "message": "cancelled by user"})
     )
     state = await task_manager.get_state(task_id)
-    assert state is not None
+    if state is None:
+        raise ApiError(status_code=404, code="TASK_NOT_FOUND", detail="Task not found after cancel.")
     return state
 
 

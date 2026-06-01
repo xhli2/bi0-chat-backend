@@ -1,5 +1,7 @@
 from collections.abc import Callable
 
+from app.agent.skill_specs import DEFAULT_SKILL_SPECS, SkillSpec
+
 
 SkillFn = Callable[[str], str]
 
@@ -23,4 +25,10 @@ def register_skill(name: str, fn: SkillFn) -> None:
 
 
 def list_skills() -> list[str]:
-    return sorted(SKILL_REGISTRY.keys())
+    names = {spec.name for spec in DEFAULT_SKILL_SPECS}
+    names.update(SKILL_REGISTRY.keys())
+    return sorted(names)
+
+
+def list_skill_specs() -> list[SkillSpec]:
+    return list(DEFAULT_SKILL_SPECS)

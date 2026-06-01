@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Header
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_db_session
@@ -21,6 +21,19 @@ async def login(payload: LoginRequest, session: AsyncSession = Depends(get_db_se
 
 
 @router.post("/refresh", response_model=TokenPair)
-async def refresh(payload: RefreshRequest) -> TokenPair:
-    user_id = parse_refresh_token(payload.refresh_token)
-    return issue_tokens(user_id)
+async def refresh(
+    payload: RefreshRequest,
+    x_tenant_id: str | None = Header(default=None, alias="X-Tenant-ID"),
+) -> TokenPair:
+    claims = parse_refresh_token(payload.refresh_token)
+    requested_tenant = (x_tenant_id or claims.tenant_id).strip() or claims.tenant_id
+    if requested_tenant != claims.tenant_id:
+        from app.core.exceptions import ApiError
+
+        raise ApiError(status_code=403, code="TENANT_MISMATCH", detail="Tenant header does not match token claim.")
+    return issue_tokens(
+        claims.user_id,
+        tenant_id=claims.tenant_id,
+        permissions=set(claims.permissions),
+        scopes=set(claims.scopes),
+    )

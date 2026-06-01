@@ -1,3 +1,6 @@
+from __future__ import annotations
+
+import logging
 from datetime import datetime, timezone
 from http import HTTPStatus
 
@@ -5,6 +8,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
+logger = logging.getLogger(__name__)
 
 class ErrorBody(BaseModel):
     error: str
@@ -41,6 +45,11 @@ def register_exception_handlers(app: FastAPI) -> None:
 
     @app.exception_handler(Exception)
     async def handle_uncaught_error(request: Request, exc: Exception) -> JSONResponse:
+        logger.exception(
+            "uncaught_exception path=%s request_id=%s",
+            request.url.path,
+            request.headers.get("X-Request-ID"),
+        )
         status = HTTPStatus.INTERNAL_SERVER_ERROR
         return _build_error_response(
             request=request,

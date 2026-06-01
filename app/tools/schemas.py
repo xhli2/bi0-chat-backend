@@ -5,6 +5,10 @@ from typing import Any
 
 from pydantic import BaseModel
 
+from app.core.tool_errors import ToolExecutionError
+
+__all__ = ["ToolExecutionResult", "ToolExecutionContext", "ToolExecutionError", "EmptyInput"]
+
 
 class ToolExecutionResult(BaseModel):
     ok: bool
@@ -25,13 +29,8 @@ class ToolExecutionContext:
     permissions: set[str] = field(default_factory=set)
     approved_tools: set[str] = field(default_factory=set)
     scopes: set[str] = field(default_factory=set)
-
-
-class ToolExecutionError(Exception):
-    def __init__(self, code: str, message: str, retryable: bool = False) -> None:
-        self.code = code
-        self.retryable = retryable
-        super().__init__(message)
+    tool_result_cache: dict[str, Any] = field(default_factory=dict)
+    allowed_tools: set[str] | None = None
 
 
 class EmptyInput(BaseModel):

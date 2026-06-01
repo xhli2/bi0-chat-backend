@@ -21,7 +21,8 @@ async def get_current_user(
 ) -> User:
     if credentials is None:
         raise ApiError(status_code=401, code="UNAUTHORIZED", detail="Missing bearer token.")
-    user_id = parse_access_token(credentials.credentials)
+    token_claims = parse_access_token(credentials.credentials)
+    user_id = token_claims.user_id
     result = await session.execute(select(User).where(User.id == user_id))
     user = result.scalars().first()
     if user is None:
@@ -34,15 +35,28 @@ class AuthContext:
     user: User
     tenant_id: str
     trace_id: str | None
+    permissions: set[str]
+    scopes: set[str]
 
 
 async def get_auth_context(
     user: User = Depends(get_current_user),
+    credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
     x_tenant_id: str | None = Header(default=None, alias="X-Tenant-ID"),
     x_trace_id: str | None = Header(default=None, alias="X-Trace-ID"),
 ) -> AuthContext:
-    tenant_id = (x_tenant_id or "public").strip() or "public"
-    return AuthContext(user=user, tenant_id=tenant_id, trace_id=x_trace_id)
+    token_claims = parse_access_token(credentials.credentials) if credentials else None
+    claim_tenant = token_claims.tenant_id if token_claims else "public"
+    header_tenant = (x_tenant_id or claim_tenant).strip() or claim_tenant
+    if header_tenant != claim_tenant:
+        raise ApiError(status_code=403, code="TENANT_MISMATCH", detail="Tenant header does not match token claim.")
+    return AuthContext(
+        user=user,
+        tenant_id=claim_tenant,
+        trace_id=x_trace_id,
+        permissions=set(token_claims.permissions if token_claims else []),
+        scopes=set(token_claims.scopes if token_claims else []),
+    )
 
 
 async def require_admin_user(user: User = Depends(get_current_user)) -> User:

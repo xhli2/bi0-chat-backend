@@ -18,6 +18,8 @@ EventType = Literal[
     "step_timeout",
     "checkpoint_saved",
     "collab_update",
+    "subagent_started",
+    "subagent_completed",
 ]
 TaskStatus = Literal["queued", "running", "success", "failed", "cancelled"]
 TaskPriority = Literal["low", "default", "high"]

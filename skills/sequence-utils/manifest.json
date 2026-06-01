@@ -1,0 +1,4 @@
+{
+  "scripts": ["seq_stats.py"],
+  "default_script": "seq_stats.py"
+}

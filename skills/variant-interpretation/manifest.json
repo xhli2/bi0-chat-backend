@@ -1,0 +1,4 @@
+{
+  "scripts": ["summarize_evidence.py"],
+  "default_script": "summarize_evidence.py"
+}

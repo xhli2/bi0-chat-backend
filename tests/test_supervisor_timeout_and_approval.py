@@ -57,6 +57,9 @@ async def test_supervisor_step_timeout_emits_event(monkeypatch):
     assert usage is None
     events = await task_manager.recent_events(task_id, limit=50)
     assert any(event.type == "step_timeout" for event in events)
+    checkpoints = await task_manager.list_checkpoints(task_id, limit=50)
+    assert any(item.get("kind") == "plan_created" for item in checkpoints)
+    assert any(item.get("kind") == "plan_recomputed" for item in checkpoints)
 
 
 @pytest.mark.asyncio

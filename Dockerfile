@@ -13,6 +13,10 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-install-project --no-dev
 
 COPY app ./app
+COPY skills ./skills
+COPY context_packs ./context_packs
+COPY alembic ./alembic
+COPY alembic.ini ./alembic.ini
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-dev --no-editable
 
@@ -27,6 +31,8 @@ WORKDIR /app
 RUN groupadd --system app && useradd --system --gid app app
 
 COPY --from=builder --chown=app:app /app /app
+
+RUN mkdir -p /app/workspaces && chown -R app:app /app/workspaces
 
 USER app
 

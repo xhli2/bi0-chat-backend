@@ -12,13 +12,15 @@ from app.models.chat_memory_kv import ChatMemoryKV
 from app.models.chat_message import ChatMessage
 from app.models.chat_session import ChatSession
 from app.models.chat_summary import ChatSummary
-from app.schemas.session import ContextPolicy
+from app.models.chat_tool_call import ChatToolCall
+from app.models.session_entity import SessionEntity
+from app.models.session_run import SessionRun
+from app.schemas.session import ContextPolicy, TokenUsageBreakdown
+from app.services.token_counter import estimate_tokens_for_model
 
 
-def estimate_tokens(text: str) -> int:
-    if not text:
-        return 0
-    return max(1, len(text) // 4)
+def estimate_tokens(text: str, model: str | None = None) -> int:
+    return estimate_tokens_for_model(text, model=model)
 
 
 class SessionHistoryService:
@@ -70,6 +72,8 @@ class SessionHistoryService:
         content: str,
         trace_id: str | None,
         token_estimate: int | None = None,
+        task_id: str | None = None,
+        metadata: dict | None = None,
     ) -> ChatMessage:
         next_turn = await self.next_turn_index(session_id)
         message = ChatMessage(
@@ -79,6 +83,8 @@ class SessionHistoryService:
             role=role,
             content=content,
             trace_id=trace_id,
+            task_id=task_id,
+            metadata_json=metadata or {},
             token_estimate=token_estimate if token_estimate is not None else estimate_tokens(content),
         )
         self.db.add(message)
@@ -353,6 +359,141 @@ class SessionHistoryService:
             "latest_summary_version": latest.version if latest else None,
             "latest_summary_covered_until_turn": latest.covered_until_turn if latest else None,
         }
+
+    async def create_session_run(
+        self,
+        *,
+        task_id: str,
+        session_id: str,
+        tenant_id: str,
+        user_id: int | None,
+        trace_id: str | None,
+        agent_type: str,
+        model: str | None,
+        context_policy: str,
+        turn_index: int | None,
+        resolved_skills: list[str] | None = None,
+        context_pack_ids: list[str] | None = None,
+        routing_json: dict | None = None,
+    ) -> SessionRun:
+        now = datetime.now(timezone.utc)
+        run = SessionRun(
+            id=task_id,
+            session_id=session_id,
+            turn_index=turn_index,
+            user_id=user_id,
+            tenant_id=tenant_id,
+            trace_id=trace_id,
+            agent_type=agent_type,
+            model=model,
+            context_policy=context_policy,
+            status="running",
+            resolved_skills=resolved_skills or [],
+            context_pack_ids=context_pack_ids or [],
+            routing_json=routing_json,
+            started_at=now,
+        )
+        self.db.add(run)
+        await self.db.commit()
+        await self.db.refresh(run)
+        return run
+
+    async def complete_session_run(
+        self,
+        *,
+        task_id: str,
+        status: str,
+        usage_json: dict | None = None,
+        plan_json: dict | None = None,
+        error_message: str | None = None,
+    ) -> SessionRun | None:
+        result = await self.db.execute(select(SessionRun).where(SessionRun.id == task_id))
+        run = result.scalars().first()
+        if run is None:
+            return None
+        run.status = status
+        run.usage_json = usage_json
+        run.plan_json = plan_json
+        run.error_message = error_message
+        run.completed_at = datetime.now(timezone.utc)
+        await self.db.commit()
+        await self.db.refresh(run)
+        return run
+
+    async def list_session_runs(self, session_id: str, limit: int = 50) -> list[SessionRun]:
+        result = await self.db.execute(
+            select(SessionRun)
+            .where(SessionRun.session_id == session_id)
+            .order_by(SessionRun.created_at.desc())
+            .limit(limit)
+        )
+        return list(result.scalars().all())
+
+    async def list_tool_calls(self, session_id: str, limit: int = 100) -> list[ChatToolCall]:
+        result = await self.db.execute(
+            select(ChatToolCall)
+            .where(ChatToolCall.session_id == session_id)
+            .order_by(ChatToolCall.turn_index.asc(), ChatToolCall.created_at.asc())
+            .limit(limit)
+        )
+        return list(result.scalars().all())
+
+    async def list_entities(self, session_id: str, active_only: bool = False) -> list[SessionEntity]:
+        stmt = select(SessionEntity).where(SessionEntity.session_id == session_id).order_by(SessionEntity.updated_at.desc())
+        if active_only:
+            stmt = stmt.where(SessionEntity.is_active.is_(True))
+        result = await self.db.execute(stmt)
+        return list(result.scalars().all())
+
+    @staticmethod
+    def _aggregate_usage_from_runs(runs: list[SessionRun], message_token_estimate: int) -> TokenUsageBreakdown:
+        input_tokens = 0
+        output_tokens = 0
+        for run in runs:
+            usage = run.usage_json or {}
+            input_tokens += int(usage.get("input_tokens") or 0)
+            output_tokens += int(usage.get("output_tokens") or 0)
+        total = input_tokens + output_tokens
+        if total == 0:
+            total = message_token_estimate
+        return TokenUsageBreakdown(
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            total_tokens=total,
+            message_token_estimate=message_token_estimate,
+            run_count=len(runs),
+        )
+
+    async def get_session_token_usage(self, session_id: str) -> TokenUsageBreakdown:
+        runs = await self.list_session_runs(session_id, limit=500)
+        message_sum = (
+            await self.db.execute(
+                select(func.coalesce(func.sum(ChatMessage.token_estimate), 0)).where(
+                    ChatMessage.session_id == session_id,
+                    ChatMessage.is_archived.is_(False),
+                )
+            )
+        ).scalar_one()
+        return self._aggregate_usage_from_runs(runs, int(message_sum or 0))
+
+    async def get_user_token_usage(
+        self,
+        tenant_id: str,
+        user_id: int,
+        session_limit: int = 50,
+    ) -> tuple[TokenUsageBreakdown, list[tuple[str, TokenUsageBreakdown]]]:
+        sessions = await self.list_sessions(tenant_id=tenant_id, user_id=user_id, limit=session_limit)
+        by_session: list[tuple[str, TokenUsageBreakdown]] = []
+        total = TokenUsageBreakdown()
+        for session in sessions:
+            usage = await self.get_session_token_usage(session.id)
+            by_session.append((session.id, usage))
+            total.input_tokens += usage.input_tokens
+            total.output_tokens += usage.output_tokens
+            total.total_tokens += usage.total_tokens
+            total.message_token_estimate += usage.message_token_estimate
+            total.run_count += usage.run_count
+        return total, by_session
 
 
 def normalize_context_policy(policy: str | None) -> ContextPolicy:

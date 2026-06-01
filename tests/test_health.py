@@ -15,3 +15,4 @@ async def test_readyz(client):
     body = response.json()
     assert body["status"] == "ready"
     assert "time" in body
+    assert body["checks"]["database"] == "skipped"

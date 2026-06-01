@@ -23,6 +23,7 @@ class TaskManager:
             self._memory_run_specs: dict[str, dict] = {}
             self._memory_seq = 0
             self._memory_stream_conditions: dict[str, asyncio.Condition] = {}
+            self._memory_secrets: dict[str, dict[str, str]] = {}
         else:
             self._redis = Redis.from_url(self._settings.redis_url, decode_responses=True)
 
@@ -34,6 +35,9 @@ class TaskManager:
 
     def _dead_letter_key(self) -> str:
         return "tasks:dead_letter"
+
+    def _secret_key(self, secret_ref: str) -> str:
+        return f"secret:{secret_ref}"
 
     async def create_task(
         self,
@@ -156,7 +160,10 @@ class TaskManager:
                 status = event.payload.get("status")
                 if status in {"queued", "running", "success", "failed", "cancelled"}:
                     state.status = status
-                state.awaiting_approval = bool(event.payload.get("awaiting_approval", state.awaiting_approval))
+                if status in {"success", "failed", "cancelled"}:
+                    state.awaiting_approval = False
+                elif "awaiting_approval" in event.payload:
+                    state.awaiting_approval = bool(event.payload.get("awaiting_approval"))
                 state.workflow_step = int(event.payload.get("workflow_step", state.workflow_step))
             if event.type == "approval_required":
                 state.awaiting_approval = True
@@ -190,7 +197,9 @@ class TaskManager:
             status = event.payload.get("status")
             if status in {"queued", "running", "success", "failed", "cancelled"}:
                 state_patch["status"] = status
-            if "awaiting_approval" in event.payload:
+            if status in {"success", "failed", "cancelled"}:
+                state_patch["awaiting_approval"] = "0"
+            elif "awaiting_approval" in event.payload:
                 state_patch["awaiting_approval"] = "1" if event.payload.get("awaiting_approval") else "0"
             if "workflow_step" in event.payload:
                 state_patch["workflow_step"] = str(event.payload.get("workflow_step", 0))
@@ -276,6 +285,14 @@ class TaskManager:
             return
         await self._redis.set(f"task:{task_id}:run_spec", json.dumps(spec, ensure_ascii=False))
 
+    async def patch_run_spec(self, task_id: str, patch: dict) -> dict | None:
+        current = await self.get_run_spec(task_id)
+        if current is None:
+            return None
+        merged = {**current, **patch}
+        await self.save_run_spec(task_id, merged)
+        return merged
+
     async def get_run_spec(self, task_id: str) -> dict | None:
         if self._use_memory_store:
             return self._memory_run_specs.get(task_id)
@@ -286,6 +303,46 @@ class TaskManager:
             return json.loads(raw)
         except json.JSONDecodeError:
             return None
+
+    async def put_secret(self, value: str, ttl_seconds: int) -> str:
+        secret_ref = str(uuid4())
+        ttl = max(1, ttl_seconds)
+        if self._use_memory_store:
+            expires_at = datetime.now(timezone.utc).timestamp() + ttl
+            self._memory_secrets[secret_ref] = {"value": value, "expires_at": str(expires_at)}
+            return secret_ref
+        await self._redis.set(self._secret_key(secret_ref), value, ex=ttl)
+        return secret_ref
+
+    async def consume_secret(self, secret_ref: str) -> str | None:
+        if self._use_memory_store:
+            entry = self._memory_secrets.get(secret_ref)
+            if not entry:
+                return None
+            expires_at = float(entry.get("expires_at", "0"))
+            if datetime.now(timezone.utc).timestamp() > expires_at:
+                self._memory_secrets.pop(secret_ref, None)
+                return None
+            self._memory_secrets.pop(secret_ref, None)
+            return entry.get("value")
+        key = self._secret_key(secret_ref)
+        value = await self._redis.get(key)
+        if value is None:
+            return None
+        await self._redis.delete(key)
+        return value
+
+    async def secret_exists(self, secret_ref: str) -> bool:
+        if self._use_memory_store:
+            entry = self._memory_secrets.get(secret_ref)
+            if not entry:
+                return False
+            expires_at = float(entry.get("expires_at", "0"))
+            if datetime.now(timezone.utc).timestamp() > expires_at:
+                self._memory_secrets.pop(secret_ref, None)
+                return False
+            return True
+        return bool(await self._redis.exists(self._secret_key(secret_ref)))
 
     async def interrupt(self, task_id: str) -> bool:
         if self._use_memory_store:

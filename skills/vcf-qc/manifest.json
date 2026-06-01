@@ -1,0 +1,4 @@
+{
+  "scripts": ["vcf_qc.py"],
+  "default_script": "vcf_qc.py"
+}

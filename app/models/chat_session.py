@@ -24,3 +24,7 @@ class ChatSession(Base, TimestampMixin):
     messages = relationship("ChatMessage", back_populates="session", cascade="all, delete-orphan")
     summaries = relationship("ChatSummary", back_populates="session", cascade="all, delete-orphan")
     memory_items = relationship("ChatMemoryKV", back_populates="session", cascade="all, delete-orphan")
+    tool_calls = relationship("ChatToolCall", back_populates="session", cascade="all, delete-orphan")
+    entities = relationship("SessionEntity", back_populates="session", cascade="all, delete-orphan")
+    runs = relationship("SessionRun", back_populates="session", cascade="all, delete-orphan")
+    artifacts = relationship("SessionArtifact", back_populates="session", cascade="all, delete-orphan")

@@ -7,6 +7,15 @@ from httpx import ASGITransport, AsyncClient
 os.environ["DATABASE_URL"] = "sqlite+aiosqlite:///./test.db"
 os.environ["ENVIRONMENT"] = "test"
 os.environ["JWT_SECRET_KEY"] = "test-secret"
+os.environ["DEFAULT_LLM_MODEL"] = ""
+os.environ["DEFAULT_PROVIDER_BASE_URL"] = ""
+os.environ["DEFAULT_PROVIDER_API_KEY"] = ""
+os.environ["DEFAULT_PROVIDER_NAME"] = ""
+os.environ["MODEL_ROUTER_SIMPLE_MODEL"] = "gpt-4.1-mini"
+os.environ["MODEL_ROUTER_COMPLEX_MODEL"] = "gpt-4.1"
+os.environ["MODEL_ALLOWLIST"] = "builtin,gpt-4.1-mini,gpt-4.1,auto"
+os.environ["TENANT_MODEL_POLICIES_JSON"] = '{"public":["builtin","gpt-4.1-mini"],"vip":["builtin","gpt-4.1-mini","gpt-4.1"]}'
+os.environ["ACCESS_TOKEN_DEFAULT_TENANT"] = "public"
 
 from app.main import app  # noqa: E402
 from app.db.session import engine  # noqa: E402

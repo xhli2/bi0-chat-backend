@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field
 from app.tools.executor import ToolExecutor
 from app.tools.registry import ToolRegistry, ToolSpec
 from app.tools.schemas import ToolExecutionContext, ToolExecutionError
+from app.core.telemetry import telemetry
 
 
 class EchoInput(BaseModel):
@@ -52,6 +53,8 @@ async def test_tool_executor_success():
     result = await executor.execute("echo_tool", {"text": "hello"}, context)
     assert result.ok is True
     assert result.data["echoed"] == "hello"
+    metrics = telemetry.snapshot()["counters"]
+    assert int(metrics.get("tool.taxonomy.echo_tool.success", 0)) >= 1
 
 
 @pytest.mark.asyncio

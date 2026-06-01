@@ -107,6 +107,22 @@ class Telemetry:
             alerts.append({"severity": "info", "message": f"Detected {agent_errors} agent run errors."})
         return alerts
 
+    def record_tool_outcome(
+        self,
+        *,
+        tool_name: str,
+        tenant_id: str,
+        ok: bool,
+        error_code: str | None,
+        duration_ms: int,
+    ) -> None:
+        status_key = "success" if ok else "error"
+        self.inc(f"tool.taxonomy.{tool_name}.{status_key}", 1)
+        self.inc(f"tool.tenant.{tenant_id}.{status_key}", 1)
+        if error_code:
+            self.inc(f"tool.error_code.{error_code}", 1)
+        self.observe_ms(f"tool.taxonomy.{tool_name}", float(duration_ms))
+
     def _configure_otel(self) -> None:
         if not self._settings.otel_enabled:
             return

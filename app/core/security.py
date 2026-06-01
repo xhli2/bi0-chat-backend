@@ -17,21 +17,33 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
     return pwd_context.verify(plain_password, hashed_password)
 
 
-def _create_token(subject: str, expires_delta: timedelta, token_type: str) -> str:
+def _create_token(subject: str, expires_delta: timedelta, token_type: str, extra_claims: dict | None = None) -> str:
     settings = get_settings()
     now = datetime.now(timezone.utc)
     payload = {"sub": subject, "type": token_type, "iat": now, "exp": now + expires_delta}
+    if extra_claims:
+        payload.update(extra_claims)
     return jwt.encode(payload, settings.jwt_secret_key, algorithm=settings.jwt_algorithm)
 
 
-def create_access_token(subject: str) -> str:
+def create_access_token(subject: str, extra_claims: dict | None = None) -> str:
     settings = get_settings()
-    return _create_token(subject, timedelta(minutes=settings.jwt_access_token_expire_minutes), "access")
+    return _create_token(
+        subject,
+        timedelta(minutes=settings.jwt_access_token_expire_minutes),
+        "access",
+        extra_claims=extra_claims,
+    )
 
 
-def create_refresh_token(subject: str) -> str:
+def create_refresh_token(subject: str, extra_claims: dict | None = None) -> str:
     settings = get_settings()
-    return _create_token(subject, timedelta(minutes=settings.jwt_refresh_token_expire_minutes), "refresh")
+    return _create_token(
+        subject,
+        timedelta(minutes=settings.jwt_refresh_token_expire_minutes),
+        "refresh",
+        extra_claims=extra_claims,
+    )
 
 
 def decode_token(token: str, expected_type: str) -> dict:

@@ -35,7 +35,9 @@ async def tool_http_search_wrapper(args: dict, _: dict) -> dict:
         raise ToolExecutionError("HTTP_HOST_DENIED", f"Host '{host}' is denied by policy.")
 
     allowed_hosts = settings.parsed_http_tool_allowed_hosts
-    if allowed_hosts and host not in allowed_hosts:
+    if not allowed_hosts:
+        raise ToolExecutionError("HTTP_HOST_POLICY_EMPTY", "HTTP host allowlist is empty; outbound HTTP is disabled.")
+    if host not in allowed_hosts:
         raise ToolExecutionError("HTTP_HOST_NOT_ALLOWED", f"Host '{host}' is not in allowed hosts policy.")
 
     async with httpx.AsyncClient(timeout=payload.timeout_seconds) as client:
