@@ -15,3 +15,11 @@ test.db
 workspaces/
 reports/
 logs/
+
+# Local E2E / demo scripts (dev tooling, not part of runtime)
+scripts/
+
+# Generated or supplementary docs (core design docs under docs/ stay tracked)
+docs/*-report*.md
+docs/TODO.next.md
+docs/demo-*.md
