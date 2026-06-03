@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import time
 from typing import Any
 from uuid import uuid4
@@ -15,6 +16,9 @@ from app.db.session import SessionLocal
 from app.services.session_persistence import SessionPersistenceService, _output_ref_from_payload
 from app.tools.registry import ToolRegistry
 from app.tools.schemas import ToolExecutionContext, ToolExecutionError, ToolExecutionResult
+
+logger = logging.getLogger(__name__)
+_TOOL_APPROVAL_CODE = "TOOL_APPROVAL_REQUIRED"
 
 
 class ToolExecutor:
@@ -39,6 +43,19 @@ class ToolExecutor:
 
         async def _done(result: ToolExecutionResult, output: Any | None = None) -> ToolExecutionResult:
             finalized = _finalize(result)
+            if not finalized.ok and finalized.error_code != _TOOL_APPROVAL_CODE:
+                logger.warning(
+                    "tool.execute.failed tool_name=%s task_id=%s trace_id=%s tenant_id=%s session_id=%s "
+                    "error_code=%s duration_ms=%s message=%s",
+                    tool_name,
+                    context.task_id,
+                    context.trace_id,
+                    context.tenant_id,
+                    context.session_id,
+                    finalized.error_code,
+                    finalized.duration_ms,
+                    finalized.message,
+                )
             await self._persist_execution(
                 tool_name=tool_name,
                 args=args,

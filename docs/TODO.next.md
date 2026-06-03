@@ -7,6 +7,5 @@
 - [x] Add model allowlist and tenant-level model policy enforcement.
 - [ ] Add prompt template registry (`base`, `agent_type`, `tenant`, `request`) with versioning.
 - [ ] Add conversation/session memory storage and truncation policy.
-- [ ] Add OpenTelemetry tracing across API -> Celery -> Redis Stream.
 - [x] Add admin endpoints for queue depth, worker health, and task diagnostics.
 - [ ] Add integration tests using ephemeral Redis and Celery worker in CI.

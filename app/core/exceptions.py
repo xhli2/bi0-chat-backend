@@ -46,9 +46,11 @@ def register_exception_handlers(app: FastAPI) -> None:
     @app.exception_handler(Exception)
     async def handle_uncaught_error(request: Request, exc: Exception) -> JSONResponse:
         logger.exception(
-            "uncaught_exception path=%s request_id=%s",
+            "uncaught_exception method=%s path=%s request_id=%s trace_id=%s",
+            request.method,
             request.url.path,
             request.headers.get("X-Request-ID"),
+            request.headers.get("X-Trace-ID"),
         )
         status = HTTPStatus.INTERNAL_SERVER_ERROR
         return _build_error_response(

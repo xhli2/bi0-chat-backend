@@ -1,9 +1,17 @@
 from celery import Celery
+from celery.signals import worker_process_init
 from kombu import Queue
 
 from app.core.config import get_settings
+from app.core.logging import configure_logging
 
 settings = get_settings()
+configure_logging()
+
+
+@worker_process_init.connect
+def _configure_worker_process_logging(**_: object) -> None:
+    configure_logging()
 
 celery_app = Celery(
     "backend_temp",

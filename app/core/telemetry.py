@@ -4,32 +4,12 @@ import logging
 import time
 from collections import defaultdict
 from contextlib import contextmanager
-from dataclasses import dataclass
 from threading import Lock
 from typing import Iterator
 
 from app.core.config import get_settings
 
 logger = logging.getLogger("app.telemetry")
-
-try:
-    from opentelemetry import metrics
-    from opentelemetry.exporter.otlp.proto.http.metric_exporter import OTLPMetricExporter
-    from opentelemetry.sdk.metrics import MeterProvider
-    from opentelemetry.sdk.metrics.export import PeriodicExportingMetricReader
-    from opentelemetry.sdk.resources import Resource
-except Exception:  # pragma: no cover - optional dependency
-    metrics = None
-    OTLPMetricExporter = None
-    MeterProvider = None
-    PeriodicExportingMetricReader = None
-    Resource = None
-
-
-@dataclass
-class CounterSnapshot:
-    name: str
-    value: int
 
 
 class Telemetry:
@@ -39,32 +19,15 @@ class Telemetry:
         self._counters: dict[str, int] = defaultdict(int)
         self._latency_totals: dict[str, float] = defaultdict(float)
         self._latency_counts: dict[str, int] = defaultdict(int)
-        self._otel_counters: dict[str, object] = {}
-        self._otel_histograms: dict[str, object] = {}
-        self._meter = None
-        self._configure_otel()
 
     def inc(self, name: str, value: int = 1) -> None:
         with self._lock:
             self._counters[name] += value
-        if self._meter is not None:
-            counter = self._otel_counters.get(name)
-            if counter is None:
-                counter = self._meter.create_counter(name)
-                self._otel_counters[name] = counter
-            counter.add(value)
 
     def observe_ms(self, name: str, duration_ms: float) -> None:
         with self._lock:
             self._latency_totals[name] += duration_ms
             self._latency_counts[name] += 1
-        if self._meter is not None:
-            hist_name = f"{name}.latency.ms"
-            histogram = self._otel_histograms.get(hist_name)
-            if histogram is None:
-                histogram = self._meter.create_histogram(hist_name)
-                self._otel_histograms[hist_name] = histogram
-            histogram.record(duration_ms)
 
     @contextmanager
     def span(self, name: str, **attrs) -> Iterator[None]:
@@ -89,7 +52,7 @@ class Telemetry:
                 for key in self._latency_totals
             }
             return {
-                "service": self._settings.otel_service_name,
+                "service": self._settings.app_name,
                 "counters": dict(self._counters),
                 "latency_avg_ms": latency_avg,
             }
@@ -122,35 +85,6 @@ class Telemetry:
         if error_code:
             self.inc(f"tool.error_code.{error_code}", 1)
         self.observe_ms(f"tool.taxonomy.{tool_name}", float(duration_ms))
-
-    def _configure_otel(self) -> None:
-        if not self._settings.otel_enabled:
-            return
-        if not all([metrics, OTLPMetricExporter, MeterProvider, PeriodicExportingMetricReader, Resource]):
-            logger.warning("OTEL enabled but opentelemetry packages are unavailable.")
-            return
-        try:
-            exporter = OTLPMetricExporter(
-                endpoint=self._settings.otel_exporter_otlp_endpoint,
-                headers=self._settings.parsed_otel_exporter_headers,
-            )
-            reader = PeriodicExportingMetricReader(
-                exporter=exporter,
-                export_interval_millis=max(1000, self._settings.otel_export_interval_millis),
-            )
-            provider = MeterProvider(
-                metric_readers=[reader],
-                resource=Resource.create({"service.name": self._settings.otel_service_name}),
-            )
-            metrics.set_meter_provider(provider)
-            self._meter = metrics.get_meter(self._settings.otel_service_name)
-            logger.info(
-                "OTEL metrics exporter configured endpoint=%s service=%s",
-                self._settings.otel_exporter_otlp_endpoint,
-                self._settings.otel_service_name,
-            )
-        except Exception:
-            logger.exception("Failed to initialize OTEL exporter.")
 
 
 telemetry = Telemetry()

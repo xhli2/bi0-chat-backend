@@ -14,3 +14,4 @@ wheels/
 test.db
 workspaces/
 reports/
+logs/

@@ -1,5 +1,6 @@
 import asyncio
 import hashlib
+import logging
 from datetime import datetime, timezone
 from typing import Any
 from uuid import uuid4
@@ -35,6 +36,7 @@ from app.tools.runtime import build_openai_agent_tools
 from app.tools.schemas import ToolExecutionContext
 from app.worker.celery_app import celery_app
 
+logger = logging.getLogger(__name__)
 settings = get_settings()
 
 _worker_event_loop: asyncio.AbstractEventLoop | None = None
@@ -93,6 +95,15 @@ def run_agent_task(
     requested_model: str | None = None,
     fallback_models: list[str] | None = None,
 ) -> None:
+    logger.info(
+        "agent.run.received task_id=%s trace_id=%s tenant_id=%s agent_type=%s session_id=%s model=%s",
+        task_id,
+        trace_id,
+        tenant_id,
+        agent_type,
+        session_id,
+        model,
+    )
     try:
         with telemetry.span("agent.run", task_id=task_id, agent_type=agent_type, tenant_id=tenant_id):
             _run_async(
@@ -172,7 +183,15 @@ def run_spliceai_job_task(
         _run_async(_run_spliceai_job(job_id=job_id, trace_id=trace_id, tenant_id=tenant_id))
     except Exception as exc:
         _ = self
-        _run_async(_mark_spliceai_failed(job_id, f"{type(exc).__name__}: {exc}"))
+        reason = f"{type(exc).__name__}: {exc}"
+        logger.warning(
+            "spliceai.task.failed job_id=%s trace_id=%s tenant_id=%s reason=%s",
+            job_id,
+            trace_id,
+            tenant_id,
+            reason,
+        )
+        _run_async(_mark_spliceai_failed(job_id, reason))
         raise exc
 
 
@@ -185,8 +204,26 @@ def _handle_retry_or_deadletter(celery_task, task_id: str, trace_id: str | None,
     if retry_count < max_retries:
         backoff = settings.celery_retry_backoff_seconds * (2**retry_count)
         countdown = min(backoff, settings.celery_retry_backoff_max_seconds)
+        logger.warning(
+            "agent.task.retry task_id=%s trace_id=%s tenant_id=%s retry=%s max_retries=%s countdown=%s reason=%s",
+            task_id,
+            trace_id,
+            tenant_id,
+            retry_count,
+            max_retries,
+            countdown,
+            reason,
+        )
         raise celery_task.retry(exc=exception, countdown=countdown, max_retries=max_retries)
 
+    logger.warning(
+        "agent.task.dead_letter task_id=%s trace_id=%s tenant_id=%s retries=%s reason=%s",
+        task_id,
+        trace_id,
+        tenant_id,
+        retry_count,
+        reason,
+    )
     _run_async(task_manager.mark_dead_letter(task_id, reason))
     _run_async(
         task_manager.emit(
@@ -228,6 +265,15 @@ async def _run_agent_task(
     requested_model: str | None = None,
     fallback_models: list[str] | None = None,
 ) -> None:
+    logger.info(
+        "agent.task.started task_id=%s trace_id=%s tenant_id=%s agent_type=%s session_id=%s model=%s",
+        task_id,
+        trace_id,
+        tenant_id,
+        agent_type,
+        session_id,
+        model,
+    )
     async with SessionLocal() as db:
         history = SessionHistoryService(db)
         policy = normalize_context_policy(context_policy)
@@ -400,6 +446,14 @@ async def _run_agent_task(
             post_state = await task_manager.get_state(task_id)
             if post_state and post_state.awaiting_approval:
                 await history.complete_session_run(task_id=task_id, status="awaiting_approval", usage_json=run_usage)
+                logger.info(
+                    "agent.task.finished task_id=%s trace_id=%s tenant_id=%s agent_type=%s status=awaiting_approval session_id=%s",
+                    task_id,
+                    trace_id,
+                    tenant_id,
+                    agent_type,
+                    session.id,
+                )
                 return
             if full_text:
                 run_usage = usage
@@ -474,6 +528,14 @@ async def _run_agent_task(
                             task_id=task_id,
                             payload={"status": "cancelled", "message": "Task interrupted", "trace_id": trace_id, "tenant_id": tenant_id},
                         )
+                    )
+                    logger.info(
+                        "agent.task.finished task_id=%s trace_id=%s tenant_id=%s agent_type=%s status=cancelled session_id=%s",
+                        task_id,
+                        trace_id,
+                        tenant_id,
+                        agent_type,
+                        session.id,
                     )
                     return
                 if event.type == "part" and event.payload.get("name") == "final_text":
@@ -593,6 +655,15 @@ async def _run_agent_task(
             status=run_status,
             usage_json=run_usage,
             plan_json=plan_json,
+        )
+        logger.info(
+            "agent.task.finished task_id=%s trace_id=%s tenant_id=%s agent_type=%s status=%s session_id=%s",
+            task_id,
+            trace_id,
+            tenant_id,
+            agent_type,
+            run_status,
+            session.id,
         )
 
         if await history.should_refresh_summary(session.id):
@@ -1466,6 +1537,13 @@ async def _run_spliceai_job(job_id: str, trace_id: str | None, tenant_id: str) -
                 await persistence.sync_spliceai_job_completion(job=updated, result=result)
         except Exception as exc:  # noqa: BLE001
             message = f"{type(exc).__name__}: {exc}"
+            logger.warning(
+                "spliceai.job.failed job_id=%s trace_id=%s tenant_id=%s reason=%s",
+                job_id,
+                trace_id,
+                tenant_id,
+                message,
+            )
             updated = await service.mark_failed(job_id, message)
             if updated is not None:
                 await persistence.sync_spliceai_job_completion(job=updated, error_message=message)

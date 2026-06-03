@@ -766,7 +766,6 @@ sequenceDiagram
 | 沙箱 | `SCRIPT_RUNNER_MODE` | local |
 | | `SKILL_MATERIALIZE_ON_SESSION_START` | true |
 | SpliceAI | `SPLICEAI_SERVICE_URL` | "" |
-| OTEL | `OTEL_ENABLED` | false |
 
 ---
 
